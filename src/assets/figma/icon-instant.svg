@@ -1,0 +1,8 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="icons/local/instant">
+<g id="Union">
+<path d="M19.4941 16.5312H21.9941L17.4941 22.0312V18.5312H14.9941L19.4941 13.0312V16.5312Z" fill="var(--fill-0, #2D2D3A)"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M11 2C15.9706 2 20 6.02944 20 11H19C15.6863 11 13 13.6863 13 17V19.7734C12.3565 19.9195 11.6877 20 11 20C6.02944 20 2 15.9706 2 11C2 6.02944 6.02944 2 11 2ZM11 5C10.4477 5 10 5.44772 10 6V10.5H6V12.5H12V6C12 5.44772 11.5523 5 11 5Z" fill="var(--fill-0, #2D2D3A)"/>
+</g>
+</g>
+</svg>
