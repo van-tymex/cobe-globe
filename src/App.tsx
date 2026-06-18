@@ -1,5 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import createGlobe, { type Arc, type Marker } from "cobe";
+import arrowLeftIcon from "./assets/figma/arrow-left.svg";
+import chevronRightIcon from "./assets/figma/chevron-right.svg";
+import flagAustralia from "./assets/figma/flag-australia.svg";
+import flagHongKong from "./assets/figma/flag-hong-kong.svg";
+import flagTaiwan from "./assets/figma/flag-taiwan.svg";
+import helpIcon from "./assets/figma/help.svg";
+import iconClock from "./assets/figma/icon-clock.svg";
+import iconElectricity from "./assets/figma/icon-electricity.svg";
+import iconFavorite from "./assets/figma/icon-favorite.svg";
+import iconGlobe from "./assets/figma/icon-globe.svg";
+import iconInstant from "./assets/figma/icon-instant.svg";
+import searchIcon from "./assets/figma/search.svg";
+import statusIcon from "./assets/figma/status.svg";
 
 type City = Marker & {
   id: string;
@@ -270,6 +283,43 @@ function getLabelStyle(city: City, selected = true): LabelStyle {
 const currentLocationStyle = getLabelStyle(CURRENT_LOCATION);
 const INITIAL_DESTINATION_SELECTION = getDestinationSelection(INITIAL_ROTATION);
 
+type DestinationOption = {
+  id: string;
+  label: string;
+  suggested?: boolean;
+  flagImage?: string;
+  flagClassName?: string;
+};
+
+type InfoRow = {
+  id: string;
+  icon: string;
+  title: string;
+  description: string;
+};
+
+const DESTINATION_OPTIONS: DestinationOption[] = [
+  { id: "taiwan", label: "Taiwan", suggested: true, flagImage: flagTaiwan },
+  { id: "australia", label: "Australia", flagImage: flagAustralia },
+  { id: "hong-kong", label: "HongKong", flagImage: flagHongKong },
+  { id: "japan", label: "Japan", flagClassName: "flag-japan" },
+];
+
+const BENEFIT_ITEMS: InfoRow[] = [
+  { id: "esim", icon: iconGlobe, title: "1 eSIM", description: "For 195 Countries" },
+  { id: "network", icon: iconElectricity, title: "Fastest network", description: "Wherever you go" },
+  { id: "top-up", icon: iconClock, title: "Top up anytime", description: "Even when you have no data" },
+  { id: "activation", icon: iconInstant, title: "Instant activation", description: "Manage in-app" },
+  { id: "points", icon: iconFavorite, title: "Earn points", description: "For every transaction" },
+];
+
+const FAQ_ITEMS = [
+  "How to use?",
+  "How can I activate?",
+  "How does eSIM work?",
+  "Can I have more than one eSIM?",
+];
+
 function CobeGlobe() {
   const [visibleDestinationIds, setVisibleDestinationIds] = useState(
     INITIAL_DESTINATION_SELECTION.visibleDestinationIds,
@@ -497,10 +547,137 @@ function CobeGlobe() {
   );
 }
 
+function StatusBar() {
+  return (
+    <div className="status-bar" aria-hidden="true">
+      <span className="status-bar-time">9:41</span>
+      <img className="status-bar-levels" src={statusIcon} alt="" />
+    </div>
+  );
+}
+
+function TopNavigation() {
+  return (
+    <nav className="top-navigation" aria-label="Prototype navigation">
+      <button className="icon-button" type="button" aria-label="Go back">
+        <img src={arrowLeftIcon} alt="" />
+      </button>
+      <button className="icon-button" type="button" aria-label="Help">
+        <img src={helpIcon} alt="" />
+      </button>
+    </nav>
+  );
+}
+
+function DestinationFlag({ option }: { option: DestinationOption }) {
+  return (
+    <div className="destination-option">
+      <div className="flag-frame">
+        {option.flagImage ? (
+          <img className="flag-image" src={option.flagImage} alt="" />
+        ) : (
+          <span className={`css-flag ${option.flagClassName ?? ""}`} aria-hidden="true" />
+        )}
+        {option.suggested ? <span className="suggested-badge">Suggested</span> : null}
+      </div>
+      <span>{option.label}</span>
+    </div>
+  );
+}
+
+function DestinationCard() {
+  return (
+    <section className="card destination-card" aria-labelledby="destination-heading">
+      <div className="card-heading" id="destination-heading">Where?</div>
+      <div className="search-field" aria-label="Search your destination">
+        <img src={searchIcon} alt="" />
+        <span>Search your destination</span>
+      </div>
+      <div className="popular-label">Popular destinations</div>
+      <div className="destination-row">
+        {DESTINATION_OPTIONS.map((option) => (
+          <DestinationFlag key={option.id} option={option} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BannerCard() {
+  return (
+    <section className="card banner-card">
+      <h2>Buy eSIM for your friends and family</h2>
+      <p>Buy and share eSIMs in just a few simple steps, so family and friends stay connected wherever they go.</p>
+      <button className="primary-button" type="button">Buy now</button>
+    </section>
+  );
+}
+
+function BenefitsCard() {
+  return (
+    <section className="content-group" aria-labelledby="benefits-heading">
+      <h2 className="section-title" id="benefits-heading">Benefits</h2>
+      <div className="list-card">
+        {BENEFIT_ITEMS.map((item) => (
+          <div className="info-row" key={item.id}>
+            <img className="info-row-icon" src={item.icon} alt="" />
+            <div>
+              <h3>{item.title}</h3>
+              <p>{item.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FaqCard() {
+  return (
+    <section className="content-group" aria-labelledby="faq-heading">
+      <h2 className="section-title" id="faq-heading">FAQs</h2>
+      <div className="list-card faq-card">
+        {FAQ_ITEMS.map((item) => (
+          <button className="faq-row" key={item} type="button">
+            <span>{item}</span>
+            <img src={chevronRightIcon} alt="" />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   return (
     <main className="app-shell">
-      <CobeGlobe />
+      <section className="phone-screen" aria-label="eSIM travel intro prototype">
+        <StatusBar />
+        <TopNavigation />
+
+        <div className="screen-content">
+          <header className="intro-header">
+            <span className="eyebrow">eSIM</span>
+            <h1>Travel around the world</h1>
+            <p>Welcome to Taiwan</p>
+          </header>
+
+          <div className="thin-divider" aria-hidden="true" />
+
+          <div className="globe-composition">
+            <div className="globe-window">
+              <CobeGlobe />
+            </div>
+            <DestinationCard />
+          </div>
+
+          <BannerCard />
+          <BenefitsCard />
+          <FaqCard />
+        </div>
+
+        <div className="home-indicator" aria-hidden="true" />
+      </section>
     </main>
   );
 }
