@@ -21,7 +21,7 @@
 ## File Structure
 
 - Create `src/assets/figma/`: local decorative icons and flags downloaded from Figma MCP asset URLs.
-- Create `src/vite-env.d.ts`: Vite asset import declarations for SVG and PNG modules.
+- Create `src/vite-env.d.ts`: Vite asset import declarations for SVG modules.
 - Modify `src/App.tsx`: import local assets, keep existing globe logic, add static prototype data and screen sections.
 - Modify `src/styles.css`: replace the current globe-only page styling with a centered mobile screen, card/list styling, destination flag styling, and resized globe styling.
 - No test files are added because this repo has no test runner. Verification is `npm run build` plus browser inspection.
@@ -37,9 +37,9 @@
 - Create: `src/assets/figma/search.svg`
 - Create: `src/assets/figma/chevron-right.svg`
 - Create: `src/assets/figma/status.svg`
-- Create: `src/assets/figma/flag-taiwan.png`
-- Create: `src/assets/figma/flag-australia.png`
-- Create: `src/assets/figma/flag-hong-kong.png`
+- Create: `src/assets/figma/flag-taiwan.svg`
+- Create: `src/assets/figma/flag-australia.svg`
+- Create: `src/assets/figma/flag-hong-kong.svg`
 - Create: `src/assets/figma/icon-globe.svg`
 - Create: `src/assets/figma/icon-electricity.svg`
 - Create: `src/assets/figma/icon-clock.svg`
@@ -66,9 +66,9 @@ curl -L "https://www.figma.com/api/mcp/asset/99e0dc38-2114-4a30-bc93-60cc072c33a
 curl -L "https://www.figma.com/api/mcp/asset/46144688-c40b-4d58-9429-b18c6ea5cf5e" -o src/assets/figma/search.svg
 curl -L "https://www.figma.com/api/mcp/asset/e12dabd4-0905-4c3f-b273-b33b96cf15ba" -o src/assets/figma/chevron-right.svg
 curl -L "https://www.figma.com/api/mcp/asset/6376066e-6637-4419-a5f3-1fc8efa7c673" -o src/assets/figma/status.svg
-curl -L "https://www.figma.com/api/mcp/asset/6e03f48e-d5f6-41f3-8b4f-2f71b204245c" -o src/assets/figma/flag-taiwan.png
-curl -L "https://www.figma.com/api/mcp/asset/badb269d-b1ae-4202-a60c-dcdc65d6c1f5" -o src/assets/figma/flag-australia.png
-curl -L "https://www.figma.com/api/mcp/asset/7224cf25-ecfd-4ec9-a740-6e08b7f1b5fe" -o src/assets/figma/flag-hong-kong.png
+curl -L "https://www.figma.com/api/mcp/asset/6e03f48e-d5f6-41f3-8b4f-2f71b204245c" -o src/assets/figma/flag-taiwan.svg
+curl -L "https://www.figma.com/api/mcp/asset/badb269d-b1ae-4202-a60c-dcdc65d6c1f5" -o src/assets/figma/flag-australia.svg
+curl -L "https://www.figma.com/api/mcp/asset/7224cf25-ecfd-4ec9-a740-6e08b7f1b5fe" -o src/assets/figma/flag-hong-kong.svg
 curl -L "https://www.figma.com/api/mcp/asset/c6538d2b-32de-4ba8-8fdb-1e72d6266c98" -o src/assets/figma/icon-globe.svg
 curl -L "https://www.figma.com/api/mcp/asset/1787d798-a10f-4bab-a019-89821062040d" -o src/assets/figma/icon-electricity.svg
 curl -L "https://www.figma.com/api/mcp/asset/fc32a122-87d1-401d-9655-5290795336db" -o src/assets/figma/icon-clock.svg
@@ -91,9 +91,9 @@ Expected output:
 ```text
 arrow-left.svg
 chevron-right.svg
-flag-australia.png
-flag-hong-kong.png
-flag-taiwan.png
+flag-australia.svg
+flag-hong-kong.svg
+flag-taiwan.svg
 help.svg
 icon-clock.svg
 icon-electricity.svg
@@ -112,7 +112,7 @@ Create `src/vite-env.d.ts` with this complete content:
 /// <reference types="vite/client" />
 ```
 
-Expected: TypeScript can resolve local SVG and PNG imports through Vite's client type declarations.
+Expected: TypeScript can resolve local SVG imports through Vite's client type declarations.
 
 - [ ] **Step 5: Commit the assets and declarations**
 
@@ -139,9 +139,9 @@ Add:
 ```tsx
 import arrowLeftIcon from "./assets/figma/arrow-left.svg";
 import chevronRightIcon from "./assets/figma/chevron-right.svg";
-import flagAustralia from "./assets/figma/flag-australia.png";
-import flagHongKong from "./assets/figma/flag-hong-kong.png";
-import flagTaiwan from "./assets/figma/flag-taiwan.png";
+import flagAustralia from "./assets/figma/flag-australia.svg";
+import flagHongKong from "./assets/figma/flag-hong-kong.svg";
+import flagTaiwan from "./assets/figma/flag-taiwan.svg";
 import helpIcon from "./assets/figma/help.svg";
 import iconClock from "./assets/figma/icon-clock.svg";
 import iconElectricity from "./assets/figma/icon-electricity.svg";
