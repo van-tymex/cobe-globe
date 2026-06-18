@@ -542,6 +542,12 @@ button {
   translate: -50% 0;
 }
 
+@media (max-width: 420px) {
+  .app-shell {
+    padding: 0;
+  }
+}
+
 @media (max-width: 374px) {
   .phone-screen {
     width: 100vw;
@@ -554,6 +560,11 @@ button {
 
   .globe-window {
     width: calc(100vw - 20px);
+  }
+
+  .globe-stage {
+    width: 100%;
+    height: min(327px, calc(100vw - 20px));
   }
 
   .destination-row {
