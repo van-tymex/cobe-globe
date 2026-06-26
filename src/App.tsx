@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MutableRefObject,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 import createGlobe, { type Arc, type Marker } from "cobe";
 import arrowLeftIcon from "./assets/figma/arrow-left.svg";
 import chevronRightIcon from "./assets/figma/chevron-right.svg";
@@ -27,6 +35,8 @@ const MOBILE_VISIBLE_DESTINATIONS_WIDTH = 520;
 const ACTIVE_SWITCH_MARGIN = 0.015;
 const ARC_DRAW_DURATION_MS = 800;
 const ARC_MIN_PROGRESS = 0.025;
+const STANDALONE_GLOBE_SIZE = 520;
+const GLOBE_EXPORT_SIZE = STANDALONE_GLOBE_SIZE * 2;
 
 const CURRENT_LOCATION: City = {
   id: "vietnam",
@@ -78,6 +88,8 @@ type DestinationSelection = {
   activeDestinationId: string | null;
   visibleDestinationIds: string[];
 };
+
+type AppRoute = "portal" | "globe" | "prototype";
 
 function toSpherePoint([latitude, longitude]: Location): SpherePoint {
   const lat = latitude * Math.PI / 180;
@@ -243,6 +255,38 @@ function getActiveArc(destination: City | null, progress = 1): Arc[] {
   ];
 }
 
+function dataUrlToBlob(dataUrl: string) {
+  const [metadata, base64Data] = dataUrl.split(",");
+  const mimeType = metadata.match(/^data:(.*);base64$/)?.[1] ?? "image/png";
+  const binary = window.atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: mimeType });
+}
+
+function createGlobePngUrl(canvas: HTMLCanvasElement) {
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = GLOBE_EXPORT_SIZE;
+  exportCanvas.height = GLOBE_EXPORT_SIZE;
+
+  const context = exportCanvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Unable to prepare the PNG export.");
+  }
+
+  context.clearRect(0, 0, GLOBE_EXPORT_SIZE, GLOBE_EXPORT_SIZE);
+  context.drawImage(canvas, 0, 0, GLOBE_EXPORT_SIZE, GLOBE_EXPORT_SIZE);
+
+  const blob = dataUrlToBlob(exportCanvas.toDataURL("image/png"));
+
+  return URL.createObjectURL(blob);
+}
+
 function areSameIds(a: string[], b: string[]) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
@@ -286,7 +330,14 @@ const INITIAL_DESTINATION_SELECTION = getDestinationSelection(INITIAL_ROTATION);
 type DestinationOption = {
   id: string;
   label: string;
-  suggested?: boolean;
+  highlighted?: boolean;
+  flagImage?: string;
+  flagClassName?: string;
+};
+
+type SearchDestination = {
+  id: string;
+  label: string;
   flagImage?: string;
   flagClassName?: string;
 };
@@ -299,10 +350,19 @@ type InfoRow = {
 };
 
 const DESTINATION_OPTIONS: DestinationOption[] = [
-  { id: "taiwan", label: "Taiwan", suggested: true, flagImage: flagTaiwan },
-  { id: "australia", label: "Australia", flagImage: flagAustralia },
+  { id: "australia", label: "Australia", highlighted: true, flagImage: flagAustralia },
+  { id: "taiwan", label: "Taiwan", flagImage: flagTaiwan },
   { id: "hong-kong", label: "HongKong", flagImage: flagHongKong },
   { id: "japan", label: "Japan", flagClassName: "flag-japan" },
+];
+
+const SEARCH_DESTINATIONS: SearchDestination[] = [
+  { id: "algeria", label: "Algeria", flagClassName: "flag-algeria" },
+  { id: "andorra", label: "Andorra", flagClassName: "flag-andorra" },
+  { id: "angola", label: "Angola", flagClassName: "flag-angola" },
+  { id: "argentina", label: "Argentina", flagClassName: "flag-argentina" },
+  { id: "armenia", label: "Armenia", flagClassName: "flag-armenia" },
+  { id: "australia", label: "Australia", flagImage: flagAustralia },
 ];
 
 const BENEFIT_ITEMS: InfoRow[] = [
@@ -320,7 +380,87 @@ const FAQ_ITEMS = [
   "Can I have more than one eSIM?",
 ];
 
-function CobeGlobe() {
+const KEYBOARD_ROWS = [
+  ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+  ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+  ["z", "x", "c", "v", "b", "n", "m"],
+] as const;
+
+function getRouteFromPathname(pathname: string): AppRoute {
+  const normalizedPathname = pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
+
+  if (normalizedPathname === "/globe") {
+    return "globe";
+  }
+
+  if (normalizedPathname === "/prototype") {
+    return "prototype";
+  }
+
+  return "portal";
+}
+
+function useAppRoute() {
+  const [route, setRoute] = useState<AppRoute>(() => {
+    if (typeof window === "undefined") {
+      return "portal";
+    }
+
+    return getRouteFromPathname(window.location.pathname);
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(getRouteFromPathname(window.location.pathname));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const navigate = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (window.location.pathname !== href) {
+      window.history.pushState(null, "", href);
+    }
+
+    setRoute(getRouteFromPathname(href));
+    window.scrollTo({ left: 0, top: 0 });
+  };
+
+  return { route, navigate };
+}
+
+function CobeGlobe({
+  className,
+  ariaLabel = "Draggable COBE globe",
+  showMarkers = true,
+  renderPixelRatio,
+  preserveDrawingBuffer = false,
+  exportCanvasRef,
+}: {
+  className?: string;
+  ariaLabel?: string;
+  showMarkers?: boolean;
+  renderPixelRatio?: number;
+  preserveDrawingBuffer?: boolean;
+  exportCanvasRef?: MutableRefObject<HTMLCanvasElement | null>;
+}) {
   const [visibleDestinationIds, setVisibleDestinationIds] = useState(
     INITIAL_DESTINATION_SELECTION.visibleDestinationIds,
   );
@@ -333,6 +473,7 @@ function CobeGlobe() {
   const globeRef = useRef<ReturnType<typeof createGlobe> | null>(null);
   const sizeRef = useRef({ width: 900, height: 900 });
   const rotationRef = useRef(INITIAL_ROTATION);
+  const showMarkersRef = useRef(showMarkers);
   const visibleDestinationIdsRef = useRef(INITIAL_DESTINATION_SELECTION.visibleDestinationIds);
   const activeDestinationIdRef = useRef(INITIAL_DESTINATION_SELECTION.activeDestinationId);
   const arcAnimationRef = useRef<ArcAnimationState>({
@@ -350,6 +491,22 @@ function CobeGlobe() {
   });
 
   useEffect(() => {
+    showMarkersRef.current = showMarkers;
+  }, [showMarkers]);
+
+  useEffect(() => {
+    if (!exportCanvasRef) {
+      return;
+    }
+
+    exportCanvasRef.current = canvasRef.current;
+
+    return () => {
+      exportCanvasRef.current = null;
+    };
+  }, [exportCanvasRef]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
 
     if (!canvas) {
@@ -358,7 +515,7 @@ function CobeGlobe() {
 
     const updateSize = () => {
       const bounds = canvas.getBoundingClientRect();
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const pixelRatio = renderPixelRatio ?? Math.min(window.devicePixelRatio || 1, 2);
 
       sizeRef.current = {
         width: Math.max(320, Math.floor(bounds.width * pixelRatio)),
@@ -407,20 +564,27 @@ function CobeGlobe() {
       baseColor: [1, 1, 1],
       markerColor: CONNECTOR_COLOR,
       glowColor: [1, 1, 1],
-      markers: [
-        CURRENT_LOCATION,
-        ...getGlobeDestinationMarkers(INITIAL_DESTINATION_SELECTION.visibleDestinationIds),
-      ],
-      arcs: getActiveArc(
-        INITIAL_DESTINATION_SELECTION.activeDestination,
-        getArcDrawProgress(startedAt, arcAnimationRef.current, reduceMotionRef.current),
-      ),
+      markers: showMarkersRef.current
+        ? [
+          CURRENT_LOCATION,
+          ...getGlobeDestinationMarkers(INITIAL_DESTINATION_SELECTION.visibleDestinationIds),
+        ]
+        : [],
+      arcs: showMarkersRef.current
+        ? getActiveArc(
+          INITIAL_DESTINATION_SELECTION.activeDestination,
+          getArcDrawProgress(startedAt, arcAnimationRef.current, reduceMotionRef.current),
+        )
+        : [],
       arcColor: CONNECTOR_COLOR,
       arcWidth: 0.4,
       arcHeight: 0.25,
       markerElevation: 0,
       scale: 1,
       offset: [0, 0],
+      ...(preserveDrawingBuffer
+        ? { context: { alpha: true, preserveDrawingBuffer: true } }
+        : {}),
     });
 
     const render = () => {
@@ -449,11 +613,15 @@ function CobeGlobe() {
         height: sizeRef.current.height,
         phi: rotationRef.current.phi,
         theta: rotationRef.current.theta,
-        markers: [CURRENT_LOCATION, ...getGlobeDestinationMarkers(selection.visibleDestinationIds)],
-        arcs: getActiveArc(
-          selection.activeDestination,
-          getArcDrawProgress(now, arcAnimationRef.current, reduceMotionRef.current),
-        ),
+        markers: showMarkersRef.current
+          ? [CURRENT_LOCATION, ...getGlobeDestinationMarkers(selection.visibleDestinationIds)]
+          : [],
+        arcs: showMarkersRef.current
+          ? getActiveArc(
+            selection.activeDestination,
+            getArcDrawProgress(now, arcAnimationRef.current, reduceMotionRef.current),
+          )
+          : [],
       });
 
       frameRef.current = window.requestAnimationFrame(render);
@@ -471,7 +639,7 @@ function CobeGlobe() {
       globeRef.current?.destroy();
       globeRef.current = null;
     };
-  }, []);
+  }, [preserveDrawingBuffer, renderPixelRatio]);
 
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
     dragRef.current = {
@@ -516,33 +684,37 @@ function CobeGlobe() {
   return (
     <div
       ref={stageRef}
-      className="globe-stage"
+      className={className ? `globe-stage ${className}` : "globe-stage"}
       onPointerDown={startDrag}
       onPointerMove={drag}
       onPointerUp={stopDrag}
       onPointerCancel={stopDrag}
     >
-      <canvas ref={canvasRef} className="globe-canvas" aria-label="Draggable COBE globe" />
+      <canvas ref={canvasRef} className="globe-canvas" aria-label={ariaLabel} />
 
-      <span className="current-location-pulse" style={currentLocationStyle} aria-hidden="true">
-        <span className="current-location-pulse-ring" />
-        <span className="current-location-pulse-ring" />
-        <span className="current-location-pulse-dot" />
-      </span>
-      <span className="city-label current-location-label" style={currentLocationStyle}>
-        {CURRENT_LOCATION.label}
-      </span>
+      {showMarkers ? (
+        <>
+          <span className="current-location-pulse" style={currentLocationStyle} aria-hidden="true">
+            <span className="current-location-pulse-ring" />
+            <span className="current-location-pulse-ring" />
+            <span className="current-location-pulse-dot" />
+          </span>
+          <span className="city-label current-location-label" style={currentLocationStyle}>
+            {CURRENT_LOCATION.label}
+          </span>
 
-      {DESTINATION_MARKERS.map((city) => (
-        <span
-          key={city.id}
-          className="city-label"
-          data-active={city.id === activeDestinationId ? "true" : undefined}
-          style={getLabelStyle(city, visibleDestinationIdSet.has(city.id))}
-        >
-          {city.label}
-        </span>
-      ))}
+          {DESTINATION_MARKERS.map((city) => (
+            <span
+              key={city.id}
+              className="city-label"
+              data-active={city.id === activeDestinationId ? "true" : undefined}
+              style={getLabelStyle(city, visibleDestinationIdSet.has(city.id))}
+            >
+              {city.label}
+            </span>
+          ))}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -569,36 +741,87 @@ function TopNavigation() {
   );
 }
 
-function DestinationFlag({ option }: { option: DestinationOption }) {
+function DestinationChip({ option }: { option: DestinationOption }) {
   return (
-    <div className="destination-option">
-      <div className="flag-frame">
+    <button className="destination-chip" type="button">
+      <span className="flag-frame">
         {option.flagImage ? (
           <img className="flag-image" src={option.flagImage} alt="" />
         ) : (
           <span className={`css-flag ${option.flagClassName ?? ""}`} aria-hidden="true" />
         )}
-        {option.suggested ? <span className="suggested-badge">Suggested</span> : null}
-      </div>
+      </span>
       <span>{option.label}</span>
-    </div>
+      {option.highlighted ? <span className="destination-highlight" aria-hidden="true" /> : null}
+    </button>
   );
 }
 
-function DestinationCard() {
+function DestinationSearchResults() {
   return (
-    <section className="card destination-card" aria-labelledby="destination-heading">
-      <div className="card-heading" id="destination-heading">Where?</div>
-      <div className="search-field" aria-label="Search your destination">
-        <img src={searchIcon} alt="" />
-        <span>Search your destination</span>
-      </div>
-      <div className="popular-label">Popular destinations</div>
-      <div className="destination-row">
-        {DESTINATION_OPTIONS.map((option) => (
-          <DestinationFlag key={option.id} option={option} />
+    <section className="destination-results" aria-labelledby="destination-results-heading">
+      <h2 id="destination-results-heading">All destinations</h2>
+      <div className="destination-list">
+        {SEARCH_DESTINATIONS.map((destination) => (
+          <button className="destination-list-row" key={destination.id} type="button">
+            <span className="flag-frame">
+              {destination.flagImage ? (
+                <img className="flag-image" src={destination.flagImage} alt="" />
+              ) : (
+                <span className={`css-flag ${destination.flagClassName ?? ""}`} aria-hidden="true" />
+              )}
+            </span>
+            <span>{destination.label}</span>
+            <img className="destination-list-chevron" src={chevronRightIcon} alt="" />
+          </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function DestinationCard({
+  isSearchOpen,
+  onOpenSearch,
+  onCloseSearch,
+}: {
+  isSearchOpen: boolean;
+  onOpenSearch: () => void;
+  onCloseSearch: () => void;
+}) {
+  return (
+    <section
+      className={`card destination-card${isSearchOpen ? " is-search-card" : ""}`}
+      aria-labelledby="destination-heading"
+    >
+      <div className="destination-card-main">
+        <div className="card-heading" id="destination-heading">Where?</div>
+        <div className="search-row">
+          <button
+            className={`search-field${isSearchOpen ? " is-focused" : ""}`}
+            type="button"
+            aria-label="Search your destination"
+            onClick={onOpenSearch}
+          >
+            <img src={searchIcon} alt="" />
+            <span className="search-input-copy">
+              {isSearchOpen ? <span className="search-cursor" aria-hidden="true" /> : null}
+              <span>Search your destination</span>
+            </span>
+          </button>
+          {isSearchOpen ? (
+            <button className="search-cancel" type="button" onClick={onCloseSearch}>
+              Cancel
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="destination-row">
+        {DESTINATION_OPTIONS.map((option) => (
+          <DestinationChip key={option.id} option={option} />
+        ))}
+      </div>
+      {isSearchOpen ? <DestinationSearchResults /> : null}
     </section>
   );
 }
@@ -648,10 +871,177 @@ function FaqCard() {
   );
 }
 
-export default function App() {
+function VisualKeyboard() {
+  return (
+    <div className="visual-keyboard" aria-hidden="true">
+      <div className="keyboard-letter-rows">
+        <div className="keyboard-row keyboard-row-top">
+          {KEYBOARD_ROWS[0].map((key) => (
+            <span className="keyboard-key" key={key}>{key}</span>
+          ))}
+        </div>
+        <div className="keyboard-row keyboard-row-middle">
+          {KEYBOARD_ROWS[1].map((key) => (
+            <span className="keyboard-key" key={key}>{key}</span>
+          ))}
+        </div>
+        <div className="keyboard-row keyboard-row-bottom">
+          <span className="keyboard-key keyboard-action-key keyboard-key-shift">
+            <span className="keyboard-shift-icon" />
+          </span>
+          <span className="keyboard-bottom-letters">
+            {KEYBOARD_ROWS[2].map((key) => (
+              <span className="keyboard-key" key={key}>{key}</span>
+            ))}
+          </span>
+          <span className="keyboard-key keyboard-action-key keyboard-key-delete">
+            <span className="keyboard-delete-icon" />
+          </span>
+        </div>
+      </div>
+
+      <div className="keyboard-command-row">
+        <span className="keyboard-key keyboard-command-key">123</span>
+        <span className="keyboard-key keyboard-space-key">space</span>
+        <span className="keyboard-key keyboard-command-key">return</span>
+      </div>
+
+      <div className="keyboard-utility-row">
+        <span className="keyboard-emoji-key" />
+        <span className="keyboard-dictation-key" />
+      </div>
+      <div className="keyboard-home-indicator" />
+    </div>
+  );
+}
+
+function PortalPage({
+  onNavigate,
+}: {
+  onNavigate: (event: MouseEvent<HTMLAnchorElement>, href: string) => void;
+}) {
+  return (
+    <main className="portal-shell" aria-labelledby="portal-heading">
+      <section className="portal-panel">
+        <div>
+          <h1 id="portal-heading">COBE Globe</h1>
+        </div>
+
+        <div className="portal-link-grid" aria-label="Pages">
+          <a className="portal-link-card" href="/globe" onClick={(event) => onNavigate(event, "/globe")}>
+            <span className="portal-link-title">Globe only</span>
+            <span className="portal-link-copy">Standalone interactive globe</span>
+          </a>
+          <a
+            className="portal-link-card"
+            href="/prototype"
+            onClick={(event) => onNavigate(event, "/prototype")}
+          >
+            <span className="portal-link-title">Prototype</span>
+            <span className="portal-link-copy">Mobile eSIM travel screen</span>
+          </a>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function GlobeOnlyPage() {
+  const [hideMarkers, setHideMarkers] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const standaloneCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const exportUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (exportUrlRef.current) {
+        URL.revokeObjectURL(exportUrlRef.current);
+      }
+    };
+  }, []);
+
+  const prepareGlobeDownload = (link: HTMLAnchorElement) => {
+    const canvas = standaloneCanvasRef.current;
+
+    if (!canvas) {
+      return false;
+    }
+
+    if (exportUrlRef.current) {
+      URL.revokeObjectURL(exportUrlRef.current);
+    }
+
+    const url = createGlobePngUrl(canvas);
+    exportUrlRef.current = url;
+    link.href = url;
+
+    return true;
+  };
+
+  const exportStandaloneGlobe = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (isExporting || !prepareGlobeDownload(event.currentTarget)) {
+      event.preventDefault();
+      return;
+    }
+
+    setIsExporting(true);
+    window.setTimeout(() => setIsExporting(false), 150);
+  };
+
+  return (
+    <main className="standalone-globe-page" aria-label="Globe only">
+      <div className="standalone-globe-frame">
+        <CobeGlobe
+          className="standalone-globe-stage"
+          ariaLabel="Draggable standalone COBE globe"
+          showMarkers={!hideMarkers}
+          renderPixelRatio={2}
+          preserveDrawingBuffer
+          exportCanvasRef={standaloneCanvasRef}
+        />
+      </div>
+      <div className="standalone-globe-controls" aria-label="Globe export controls">
+        <label className="standalone-marker-toggle">
+          <input
+            type="checkbox"
+            checked={hideMarkers}
+            onChange={(event) => setHideMarkers(event.currentTarget.checked)}
+          />
+          <span>Hide markers and lines</span>
+        </label>
+        <a
+          className="standalone-export-button"
+          href="#"
+          download={`cobe-globe-${GLOBE_EXPORT_SIZE}.png`}
+          onPointerDown={(event) => {
+            if (!isExporting) {
+              prepareGlobeDownload(event.currentTarget);
+            }
+          }}
+          onFocus={(event) => {
+            if (!isExporting) {
+              prepareGlobeDownload(event.currentTarget);
+            }
+          }}
+          onClick={exportStandaloneGlobe}
+          aria-disabled={isExporting ? "true" : undefined}
+        >
+          {isExporting ? "Exporting..." : "Export PNG"}
+        </a>
+      </div>
+    </main>
+  );
+}
+
+function PrototypePage() {
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
   return (
     <main className="app-shell">
-      <section className="phone-screen" aria-label="eSIM travel intro prototype">
+      <section
+        className={`phone-screen${isSearchOpen ? " is-search-open" : ""}`}
+        aria-label="eSIM travel intro prototype"
+      >
         <StatusBar />
         <TopNavigation />
 
@@ -668,16 +1058,37 @@ export default function App() {
             <div className="globe-window">
               <CobeGlobe />
             </div>
-            <DestinationCard />
+            <div className="destination-card-stack">
+              <DestinationCard
+                isSearchOpen={isSearchOpen}
+                onOpenSearch={() => setIsSearchOpen(true)}
+                onCloseSearch={() => setIsSearchOpen(false)}
+              />
+              <BannerCard />
+            </div>
           </div>
 
-          <BannerCard />
           <BenefitsCard />
           <FaqCard />
         </div>
 
+        <VisualKeyboard />
         <div className="home-indicator" aria-hidden="true" />
       </section>
     </main>
   );
+}
+
+export default function App() {
+  const { route, navigate } = useAppRoute();
+
+  if (route === "globe") {
+    return <GlobeOnlyPage />;
+  }
+
+  if (route === "prototype") {
+    return <PrototypePage />;
+  }
+
+  return <PortalPage onNavigate={navigate} />;
 }

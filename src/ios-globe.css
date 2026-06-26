@@ -1,0 +1,174 @@
+:root {
+  color: #2d2d3a;
+  background: transparent;
+  font-family:
+    "SF Pro",
+    "SF Pro Text",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#globe-root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.globe-root,
+.globe-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.globe-stage {
+  cursor: grab;
+  touch-action: none;
+}
+
+.globe-stage:active {
+  cursor: grabbing;
+}
+
+.globe-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 24px 42px rgba(39, 92, 102, 0.22));
+}
+
+.city-label {
+  position: absolute;
+  position-anchor: var(--label-anchor);
+  bottom: anchor(top);
+  left: anchor(center);
+  z-index: 2;
+  padding: 3px 6px 2px;
+  color: #ffffff;
+  background: #490be8;
+  border-radius: 4px;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  translate:
+    calc(-50% + var(--label-offset-x, 0px))
+    calc(-6px + var(--label-offset-y, 0px));
+  opacity: var(--label-visible);
+  filter: blur(calc((1 - var(--label-visible)) * 5px));
+  scale: calc(0.74 + (var(--label-visible) * 0.26));
+  transform-origin: 50% calc(100% + 6px);
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(8, 60, 255, 0.12);
+  transition:
+    opacity 360ms ease,
+    filter 420ms ease,
+    scale 520ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, filter, scale;
+}
+
+.city-label[data-active="true"] {
+  background: #00f5fa;
+  color: #061214;
+  box-shadow:
+    0 0 0 1px rgba(0, 245, 250, 0.6),
+    0 8px 20px rgba(0, 245, 250, 0.24);
+}
+
+.current-location-label {
+  bottom: auto;
+  top: anchor(center);
+  left: anchor(left);
+  translate: calc(-100% - 9px) -50%;
+  color: #061214;
+  background: #00f5fa;
+  transform-origin: calc(100% + 9px) 50%;
+  box-shadow:
+    0 0 0 1px rgba(0, 245, 250, 0.6),
+    0 8px 20px rgba(0, 245, 250, 0.24);
+}
+
+.current-location-pulse {
+  position: absolute;
+  position-anchor: --cobe-vietnam;
+  left: anchor(center);
+  top: anchor(center);
+  width: 24px;
+  height: 24px;
+  display: none;
+  place-items: center;
+  translate: -50% -50%;
+  z-index: 1;
+  opacity: var(--cobe-visible-vietnam, 0);
+  pointer-events: none;
+}
+
+.current-location-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid #00f5fa;
+  border-radius: 50%;
+  opacity: 0;
+  box-shadow:
+    0 0 0 4px rgba(0, 245, 250, 0.08),
+    0 0 18px rgba(0, 245, 250, 0.32);
+  animation: current-location-pulse 2s ease-out infinite;
+}
+
+.current-location-pulse-ring:nth-child(2) {
+  animation-delay: 0.5s;
+}
+
+.current-location-pulse-dot {
+  width: 8px;
+  height: 8px;
+  z-index: 1;
+  border-radius: 50%;
+  background: #00f5fa;
+  box-shadow:
+    0 0 0 3px rgba(199, 224, 230, 0.82),
+    0 0 0 5px rgba(0, 245, 250, 0.34),
+    0 0 18px rgba(0, 245, 250, 0.45);
+}
+
+@keyframes current-location-pulse {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.35);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .city-label,
+  .current-location-pulse-ring {
+    animation: none;
+    transition: none;
+  }
+}
