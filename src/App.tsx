@@ -37,6 +37,19 @@ const ARC_DRAW_DURATION_MS = 800;
 const ARC_MIN_PROGRESS = 0.025;
 const STANDALONE_GLOBE_SIZE = 520;
 const GLOBE_EXPORT_SIZE = STANDALONE_GLOBE_SIZE * 2;
+const DEFAULT_MARKER_SIZE = 0.04;
+const CURRENT_LOCATION_MARKER_SIZE_RATIO = 0.07 / DEFAULT_MARKER_SIZE;
+const AUTO_ROTATE_RADIANS_PER_SECOND = 0.22;
+const DRAG_PHI_DIVISOR = 300;
+const DRAG_THETA_DIVISOR = 1000;
+const DRAG_MAX_VELOCITY = 0.15;
+const DRAG_PHI_VELOCITY_SCALE = 0.3;
+const DRAG_THETA_VELOCITY_SCALE = 0.08;
+const DRAG_VELOCITY_DECAY = 0.95;
+const DRAG_VELOCITY_STOP_THRESHOLD = 0.0001;
+const DRAG_THETA_MIN = -0.4;
+const DRAG_THETA_MAX = 0.4;
+const DRAG_THETA_SPRING = 0.1;
 
 const CURRENT_LOCATION: City = {
   id: "vietnam",
@@ -62,7 +75,109 @@ const DESTINATION_MARKERS: City[] = [
     size: 0.04,
     labelOffset: [-4, -44],
   },
+  {
+    id: "south-africa",
+    label: "South Africa",
+    location: [-30.5595, 22.9375],
+    size: 0.04,
+    labelOffset: [24, 12],
+  },
+  {
+    id: "egypt",
+    label: "Egypt",
+    location: [26.8206, 30.8025],
+    size: 0.04,
+    labelOffset: [-28, -10],
+  },
+  {
+    id: "kenya",
+    label: "Kenya",
+    location: [-0.0236, 37.9062],
+    size: 0.04,
+    labelOffset: [26, 10],
+  },
+  {
+    id: "united-kingdom",
+    label: "United Kingdom",
+    location: [55.3781, -3.436],
+    size: 0.04,
+    labelOffset: [-38, -28],
+  },
+  {
+    id: "france",
+    label: "France",
+    location: [46.2276, 2.2137],
+    size: 0.04,
+    labelOffset: [-44, -6],
+  },
+  {
+    id: "germany",
+    label: "Germany",
+    location: [51.1657, 10.4515],
+    size: 0.04,
+    labelOffset: [34, -40],
+  },
+  {
+    id: "spain",
+    label: "Spain",
+    location: [40.4637, -3.7492],
+    size: 0.04,
+    labelOffset: [-50, 20],
+  },
+  {
+    id: "italy",
+    label: "Italy",
+    location: [41.8719, 12.5674],
+    size: 0.04,
+    labelOffset: [54, 18],
+  },
+  {
+    id: "united-states",
+    label: "United States",
+    location: [37.0902, -95.7129],
+    size: 0.04,
+    labelOffset: [12, 24],
+  },
+  {
+    id: "canada",
+    label: "Canada",
+    location: [56.1304, -106.3468],
+    size: 0.04,
+    labelOffset: [-34, -26],
+  },
 ];
+
+type Scenario = {
+  id: string;
+  label: string;
+  description: string;
+  connectionMode: ConnectionMode;
+};
+
+type ConnectionMode = "single" | "visible" | "all";
+
+const SCENARIOS: Scenario[] = [
+  {
+    id: "scenario-1",
+    label: "Scenario 1",
+    description: "Single connection",
+    connectionMode: "single",
+  },
+  {
+    id: "scenario-2",
+    label: "Scenario 2",
+    description: "Visible connections",
+    connectionMode: "visible",
+  },
+  {
+    id: "scenario-3",
+    label: "Scenario 3",
+    description: "All connections",
+    connectionMode: "all",
+  },
+];
+
+const DEFAULT_SCENARIO = SCENARIOS[0];
 
 const INITIAL_ROTATION = {
   phi: 2.824,
@@ -73,13 +188,19 @@ type Rotation = typeof INITIAL_ROTATION;
 type Location = [number, number];
 type SpherePoint = [number, number, number];
 
+type PointerSample = {
+  x: number;
+  y: number;
+  t: number;
+};
+
 type DestinationCandidate = {
   marker: City;
   score: number;
 };
 
 type ArcAnimationState = {
-  destinationId: string | null;
+  key: string | null;
   startedAt: number;
 };
 
@@ -90,6 +211,128 @@ type DestinationSelection = {
 };
 
 type AppRoute = "portal" | "globe" | "prototype";
+type GlobeSliderControlId = "markerSize" | "markerElevation" | "arcHeight" | "arcWidth";
+
+type GlobeControlSettings = Record<GlobeSliderControlId, number> & {
+  showArcs: boolean;
+  autoRotate: boolean;
+};
+
+type GlobeToggleControlId = "showArcs" | "autoRotate";
+
+type StandaloneGlobeSettings = GlobeControlSettings & {
+  activeScenarioId: string;
+};
+
+type SettingsPanelId = "scenario" | "controls";
+
+type GlobeSliderControl = {
+  id: GlobeSliderControlId;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  precision: number;
+};
+
+const DEFAULT_GLOBE_CONTROLS: GlobeControlSettings = {
+  markerSize: DEFAULT_MARKER_SIZE,
+  markerElevation: 0,
+  arcHeight: 0.25,
+  arcWidth: 0.4,
+  showArcs: true,
+  autoRotate: false,
+};
+
+const DEFAULT_STANDALONE_GLOBE_SETTINGS: StandaloneGlobeSettings = {
+  activeScenarioId: DEFAULT_SCENARIO.id,
+  ...DEFAULT_GLOBE_CONTROLS,
+};
+
+const STANDALONE_GLOBE_SETTINGS_STORAGE_KEY = "cobe-globe:standalone-settings";
+
+const GLOBE_SLIDER_CONTROLS: GlobeSliderControl[] = [
+  { id: "markerSize", label: "markerSize", min: 0.005, max: 0.08, step: 0.001, precision: 3 },
+  { id: "markerElevation", label: "markerElevation", min: 0, max: 0.08, step: 0.01, precision: 2 },
+  { id: "arcHeight", label: "arcHeight", min: 0, max: 0.6, step: 0.01, precision: 2 },
+  { id: "arcWidth", label: "arcWidth", min: 0.1, max: 1, step: 0.01, precision: 2 },
+];
+
+function getGlobeSliderControl(controlId: GlobeSliderControlId) {
+  return GLOBE_SLIDER_CONTROLS.find((control) => control.id === controlId);
+}
+
+function clampGlobeControlValue(controlId: GlobeSliderControlId, value: number) {
+  const control = getGlobeSliderControl(controlId);
+
+  if (!control || !Number.isFinite(value)) {
+    return DEFAULT_GLOBE_CONTROLS[controlId];
+  }
+
+  return Math.max(control.min, Math.min(control.max, value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getValidatedScenarioId(value: unknown) {
+  if (typeof value !== "string") {
+    return DEFAULT_SCENARIO.id;
+  }
+
+  return SCENARIOS.some((scenario) => scenario.id === value) ? value : DEFAULT_SCENARIO.id;
+}
+
+function getValidatedToggleValue(controlId: GlobeToggleControlId, value: unknown) {
+  return typeof value === "boolean" ? value : DEFAULT_GLOBE_CONTROLS[controlId];
+}
+
+function getValidatedSliderValue(controlId: GlobeSliderControlId, value: unknown) {
+  return typeof value === "number"
+    ? clampGlobeControlValue(controlId, value)
+    : DEFAULT_GLOBE_CONTROLS[controlId];
+}
+
+function normalizeStandaloneGlobeSettings(value: unknown): StandaloneGlobeSettings {
+  const source = isRecord(value) ? value : {};
+
+  return {
+    activeScenarioId: getValidatedScenarioId(source.activeScenarioId),
+    markerSize: getValidatedSliderValue("markerSize", source.markerSize),
+    markerElevation: getValidatedSliderValue("markerElevation", source.markerElevation),
+    arcHeight: getValidatedSliderValue("arcHeight", source.arcHeight),
+    arcWidth: getValidatedSliderValue("arcWidth", source.arcWidth),
+    showArcs: getValidatedToggleValue("showArcs", source.showArcs),
+    autoRotate: getValidatedToggleValue("autoRotate", source.autoRotate),
+  };
+}
+
+function readStandaloneGlobeSettings() {
+  if (typeof window === "undefined") {
+    return DEFAULT_STANDALONE_GLOBE_SETTINGS;
+  }
+
+  try {
+    const storedSettings = window.localStorage.getItem(STANDALONE_GLOBE_SETTINGS_STORAGE_KEY);
+
+    if (!storedSettings) {
+      return DEFAULT_STANDALONE_GLOBE_SETTINGS;
+    }
+
+    return normalizeStandaloneGlobeSettings(JSON.parse(storedSettings));
+  } catch {
+    return DEFAULT_STANDALONE_GLOBE_SETTINGS;
+  }
+}
+
+function writeStandaloneGlobeSettings(settings: StandaloneGlobeSettings) {
+  try {
+    window.localStorage.setItem(STANDALONE_GLOBE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // localStorage can be unavailable in private or restricted browser contexts.
+  }
+}
 
 function toSpherePoint([latitude, longitude]: Location): SpherePoint {
   const lat = latitude * Math.PI / 180;
@@ -157,8 +400,44 @@ function easeOutCubic(progress: number) {
   return 1 - Math.pow(1 - progress, 3);
 }
 
+function getRotationWithDragOffset(rotation: Rotation, dragOffset: Rotation): Rotation {
+  return {
+    phi: rotation.phi + dragOffset.phi,
+    theta: rotation.theta + dragOffset.theta,
+  };
+}
+
+function clampVelocity(value: number) {
+  return Math.max(-DRAG_MAX_VELOCITY, Math.min(DRAG_MAX_VELOCITY, value));
+}
+
+function applySoftThetaLimit(rotation: Rotation): Rotation {
+  if (rotation.theta < DRAG_THETA_MIN) {
+    return {
+      ...rotation,
+      theta: rotation.theta + (DRAG_THETA_MIN - rotation.theta) * DRAG_THETA_SPRING,
+    };
+  }
+
+  if (rotation.theta > DRAG_THETA_MAX) {
+    return {
+      ...rotation,
+      theta: rotation.theta + (DRAG_THETA_MAX - rotation.theta) * DRAG_THETA_SPRING,
+    };
+  }
+
+  return rotation;
+}
+
+function hasActiveDragVelocity(velocity: Rotation) {
+  return (
+    Math.abs(velocity.phi) > DRAG_VELOCITY_STOP_THRESHOLD ||
+    Math.abs(velocity.theta) > DRAG_VELOCITY_STOP_THRESHOLD
+  );
+}
+
 function getArcDrawProgress(now: number, animation: ArcAnimationState, reduceMotion: boolean) {
-  if (reduceMotion || !animation.destinationId) {
+  if (reduceMotion || !animation.key) {
     return 1;
   }
 
@@ -239,20 +518,55 @@ function getVisibleDestinationLimit() {
     : MAX_VISIBLE_DESTINATIONS;
 }
 
-function getActiveArc(destination: City | null, progress = 1): Arc[] {
-  if (!destination) {
-    return [];
+function getDestinationById(destinationId: string) {
+  return DESTINATION_MARKERS.find((destination) => destination.id === destinationId) ?? null;
+}
+
+function getDestinationsByIds(destinationIds: string[]) {
+  return destinationIds
+    .map(getDestinationById)
+    .filter((destination): destination is City => Boolean(destination));
+}
+
+function getConnectionDestinations(connectionMode: ConnectionMode, selection: DestinationSelection) {
+  if (connectionMode === "all") {
+    return DESTINATION_MARKERS;
   }
 
-  return [
-    {
-      id: `vietnam-to-${destination.id}`,
-      from: CURRENT_LOCATION.location,
-      to: progress >= 1
-        ? destination.location
-        : interpolateLocation(CURRENT_LOCATION.location, destination.location, progress),
-    },
-  ];
+  if (connectionMode === "visible") {
+    return getDestinationsByIds(selection.visibleDestinationIds);
+  }
+
+  return selection.activeDestination ? [selection.activeDestination] : [];
+}
+
+function getArcSetKey(connectionMode: ConnectionMode, selection: Pick<DestinationSelection, "activeDestinationId" | "visibleDestinationIds">) {
+  if (connectionMode === "all") {
+    return DESTINATION_MARKERS.length > 0 ? "all-destinations" : null;
+  }
+
+  if (connectionMode === "visible") {
+    return selection.visibleDestinationIds.length > 0
+      ? `visible-${selection.visibleDestinationIds.join("-")}`
+      : null;
+  }
+
+  return selection.activeDestinationId ? `single-${selection.activeDestinationId}` : null;
+}
+
+function createConnectionArc(destination: City, progress = 1): Arc {
+  return {
+    id: `vietnam-to-${destination.id}`,
+    from: CURRENT_LOCATION.location,
+    to: progress >= 1
+      ? destination.location
+      : interpolateLocation(CURRENT_LOCATION.location, destination.location, progress),
+  };
+}
+
+function getConnectionArcs(connectionMode: ConnectionMode, selection: DestinationSelection, progress = 1): Arc[] {
+  return getConnectionDestinations(connectionMode, selection)
+    .map((destination) => createConnectionArc(destination, progress));
 }
 
 function dataUrlToBlob(dataUrl: string) {
@@ -291,12 +605,22 @@ function areSameIds(a: string[], b: string[]) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
-function getGlobeDestinationMarkers(visibleDestinationIds: string[]) {
+function getCurrentLocationMarker(markerSize = DEFAULT_MARKER_SIZE): City {
+  return {
+    ...CURRENT_LOCATION,
+    size: markerSize * CURRENT_LOCATION_MARKER_SIZE_RATIO,
+  };
+}
+
+function getGlobeDestinationMarkers(visibleDestinationIds: string[], markerSize = DEFAULT_MARKER_SIZE) {
   const visibleIds = new Set(visibleDestinationIds);
 
   return DESTINATION_MARKERS.map((marker) => {
     if (visibleIds.has(marker.id)) {
-      return marker;
+      return {
+        ...marker,
+        size: markerSize,
+      };
     }
 
     return {
@@ -450,6 +774,13 @@ function CobeGlobe({
   className,
   ariaLabel = "Draggable COBE globe",
   showMarkers = true,
+  showArcs = DEFAULT_GLOBE_CONTROLS.showArcs,
+  markerSize = DEFAULT_GLOBE_CONTROLS.markerSize,
+  markerElevation = DEFAULT_GLOBE_CONTROLS.markerElevation,
+  arcHeight = DEFAULT_GLOBE_CONTROLS.arcHeight,
+  arcWidth = DEFAULT_GLOBE_CONTROLS.arcWidth,
+  autoRotate = DEFAULT_GLOBE_CONTROLS.autoRotate,
+  connectionMode = DEFAULT_SCENARIO.connectionMode,
   renderPixelRatio,
   preserveDrawingBuffer = false,
   exportCanvasRef,
@@ -457,6 +788,13 @@ function CobeGlobe({
   className?: string;
   ariaLabel?: string;
   showMarkers?: boolean;
+  showArcs?: boolean;
+  markerSize?: number;
+  markerElevation?: number;
+  arcHeight?: number;
+  arcWidth?: number;
+  autoRotate?: boolean;
+  connectionMode?: ConnectionMode;
   renderPixelRatio?: number;
   preserveDrawingBuffer?: boolean;
   exportCanvasRef?: MutableRefObject<HTMLCanvasElement | null>;
@@ -474,25 +812,79 @@ function CobeGlobe({
   const sizeRef = useRef({ width: 900, height: 900 });
   const rotationRef = useRef(INITIAL_ROTATION);
   const showMarkersRef = useRef(showMarkers);
+  const showArcsRef = useRef(showArcs);
+  const markerSizeRef = useRef(markerSize);
+  const markerElevationRef = useRef(markerElevation);
+  const arcHeightRef = useRef(arcHeight);
+  const arcWidthRef = useRef(arcWidth);
+  const autoRotateRef = useRef(autoRotate);
+  const connectionModeRef = useRef(connectionMode);
   const visibleDestinationIdsRef = useRef(INITIAL_DESTINATION_SELECTION.visibleDestinationIds);
   const activeDestinationIdRef = useRef(INITIAL_DESTINATION_SELECTION.activeDestinationId);
   const arcAnimationRef = useRef<ArcAnimationState>({
-    destinationId: INITIAL_DESTINATION_SELECTION.activeDestinationId,
+    key: getArcSetKey(connectionMode, INITIAL_DESTINATION_SELECTION),
     startedAt: 0,
   });
   const reduceMotionRef = useRef(false);
+  const previousRenderAtRef = useRef(0);
+  const dragOffsetRef = useRef<Rotation>({ phi: 0, theta: 0 });
+  const velocityRef = useRef<Rotation>({ phi: 0, theta: 0 });
+  const lastPointerRef = useRef<PointerSample | null>(null);
   const dragRef = useRef({
     active: false,
     pointerId: 0,
     x: 0,
     y: 0,
-    phi: INITIAL_ROTATION.phi,
-    theta: INITIAL_ROTATION.theta,
   });
 
   useEffect(() => {
     showMarkersRef.current = showMarkers;
   }, [showMarkers]);
+
+  useEffect(() => {
+    markerSizeRef.current = markerSize;
+  }, [markerSize]);
+
+  useEffect(() => {
+    markerElevationRef.current = markerElevation;
+  }, [markerElevation]);
+
+  useEffect(() => {
+    arcHeightRef.current = arcHeight;
+  }, [arcHeight]);
+
+  useEffect(() => {
+    arcWidthRef.current = arcWidth;
+  }, [arcWidth]);
+
+  useEffect(() => {
+    autoRotateRef.current = autoRotate;
+  }, [autoRotate]);
+
+  useEffect(() => {
+    showArcsRef.current = showArcs;
+
+    if (showArcs) {
+      arcAnimationRef.current = {
+        key: getArcSetKey(connectionModeRef.current, {
+          activeDestinationId: activeDestinationIdRef.current,
+          visibleDestinationIds: visibleDestinationIdsRef.current,
+        }),
+        startedAt: performance.now(),
+      };
+    }
+  }, [showArcs]);
+
+  useEffect(() => {
+    connectionModeRef.current = connectionMode;
+    arcAnimationRef.current = {
+      key: getArcSetKey(connectionMode, {
+        activeDestinationId: activeDestinationIdRef.current,
+        visibleDestinationIds: visibleDestinationIdsRef.current,
+      }),
+      startedAt: performance.now(),
+    };
+  }, [connectionMode]);
 
   useEffect(() => {
     if (!exportCanvasRef) {
@@ -532,9 +924,16 @@ function CobeGlobe({
     const updateReducedMotionPreference = () => {
       reduceMotionRef.current = reducedMotionQuery.matches;
 
+      if (reducedMotionQuery.matches) {
+        velocityRef.current = { phi: 0, theta: 0 };
+      }
+
       if (!reducedMotionQuery.matches) {
         arcAnimationRef.current = {
-          destinationId: activeDestinationIdRef.current,
+          key: getArcSetKey(connectionModeRef.current, {
+            activeDestinationId: activeDestinationIdRef.current,
+            visibleDestinationIds: visibleDestinationIdsRef.current,
+          }),
           startedAt: performance.now(),
         };
       }
@@ -545,8 +944,9 @@ function CobeGlobe({
     reducedMotionQuery.addEventListener("change", updateReducedMotionPreference);
 
     const startedAt = performance.now();
+    previousRenderAtRef.current = startedAt;
     arcAnimationRef.current = {
-      destinationId: INITIAL_DESTINATION_SELECTION.activeDestinationId,
+      key: getArcSetKey(connectionModeRef.current, INITIAL_DESTINATION_SELECTION),
       startedAt,
     };
 
@@ -566,20 +966,24 @@ function CobeGlobe({
       glowColor: [1, 1, 1],
       markers: showMarkersRef.current
         ? [
-          CURRENT_LOCATION,
-          ...getGlobeDestinationMarkers(INITIAL_DESTINATION_SELECTION.visibleDestinationIds),
+          getCurrentLocationMarker(markerSizeRef.current),
+          ...getGlobeDestinationMarkers(
+            INITIAL_DESTINATION_SELECTION.visibleDestinationIds,
+            markerSizeRef.current,
+          ),
         ]
         : [],
-      arcs: showMarkersRef.current
-        ? getActiveArc(
-          INITIAL_DESTINATION_SELECTION.activeDestination,
+      arcs: showMarkersRef.current && showArcsRef.current
+        ? getConnectionArcs(
+          connectionModeRef.current,
+          INITIAL_DESTINATION_SELECTION,
           getArcDrawProgress(startedAt, arcAnimationRef.current, reduceMotionRef.current),
         )
         : [],
       arcColor: CONNECTOR_COLOR,
-      arcWidth: 0.4,
-      arcHeight: 0.25,
-      markerElevation: 0,
+      arcWidth: arcWidthRef.current,
+      arcHeight: arcHeightRef.current,
+      markerElevation: markerElevationRef.current,
       scale: 1,
       offset: [0, 0],
       ...(preserveDrawingBuffer
@@ -589,8 +993,45 @@ function CobeGlobe({
 
     const render = () => {
       const now = performance.now();
+      const elapsedSeconds = Math.min(0.05, (now - previousRenderAtRef.current) / 1000);
+      previousRenderAtRef.current = now;
+
+      if (autoRotateRef.current && !dragRef.current.active && !reduceMotionRef.current) {
+        rotationRef.current = {
+          ...rotationRef.current,
+          phi: rotationRef.current.phi + AUTO_ROTATE_RADIANS_PER_SECOND * elapsedSeconds,
+        };
+      }
+
+      if (!dragRef.current.active) {
+        if (reduceMotionRef.current) {
+          velocityRef.current = { phi: 0, theta: 0 };
+          rotationRef.current = {
+            ...rotationRef.current,
+            theta: Math.max(DRAG_THETA_MIN, Math.min(DRAG_THETA_MAX, rotationRef.current.theta)),
+          };
+        } else {
+          if (hasActiveDragVelocity(velocityRef.current)) {
+            rotationRef.current = {
+              phi: rotationRef.current.phi + velocityRef.current.phi,
+              theta: rotationRef.current.theta + velocityRef.current.theta,
+            };
+            velocityRef.current = {
+              phi: velocityRef.current.phi * DRAG_VELOCITY_DECAY,
+              theta: velocityRef.current.theta * DRAG_VELOCITY_DECAY,
+            };
+          } else {
+            velocityRef.current = { phi: 0, theta: 0 };
+          }
+
+          rotationRef.current = applySoftThetaLimit(rotationRef.current);
+        }
+      }
+
+      const renderedRotation = getRotationWithDragOffset(rotationRef.current, dragOffsetRef.current);
+
       const selection = getDestinationSelection(
-        rotationRef.current,
+        renderedRotation,
         activeDestinationIdRef.current,
       );
 
@@ -601,27 +1042,39 @@ function CobeGlobe({
 
       if (selection.activeDestinationId !== activeDestinationIdRef.current) {
         activeDestinationIdRef.current = selection.activeDestinationId;
+        setActiveDestinationId(selection.activeDestinationId);
+      }
+
+      const nextArcSetKey = getArcSetKey(connectionModeRef.current, selection);
+
+      if (nextArcSetKey !== arcAnimationRef.current.key) {
         arcAnimationRef.current = {
-          destinationId: selection.activeDestinationId,
+          key: nextArcSetKey,
           startedAt: now,
         };
-        setActiveDestinationId(selection.activeDestinationId);
       }
 
       globeRef.current?.update({
         width: sizeRef.current.width,
         height: sizeRef.current.height,
-        phi: rotationRef.current.phi,
-        theta: rotationRef.current.theta,
+        phi: renderedRotation.phi,
+        theta: renderedRotation.theta,
         markers: showMarkersRef.current
-          ? [CURRENT_LOCATION, ...getGlobeDestinationMarkers(selection.visibleDestinationIds)]
+          ? [
+            getCurrentLocationMarker(markerSizeRef.current),
+            ...getGlobeDestinationMarkers(selection.visibleDestinationIds, markerSizeRef.current),
+          ]
           : [],
-        arcs: showMarkersRef.current
-          ? getActiveArc(
-            selection.activeDestination,
+        arcs: showMarkersRef.current && showArcsRef.current
+          ? getConnectionArcs(
+            connectionModeRef.current,
+            selection,
             getArcDrawProgress(now, arcAnimationRef.current, reduceMotionRef.current),
           )
           : [],
+        arcWidth: arcWidthRef.current,
+        arcHeight: arcHeightRef.current,
+        markerElevation: markerElevationRef.current,
       });
 
       frameRef.current = window.requestAnimationFrame(render);
@@ -647,9 +1100,10 @@ function CobeGlobe({
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      phi: rotationRef.current.phi,
-      theta: rotationRef.current.theta,
     };
+    dragOffsetRef.current = { phi: 0, theta: 0 };
+    velocityRef.current = { phi: 0, theta: 0 };
+    lastPointerRef.current = null;
 
     stageRef.current?.setPointerCapture(event.pointerId);
   };
@@ -661,17 +1115,45 @@ function CobeGlobe({
       return;
     }
 
-    const nextTheta = dragState.theta + (event.clientY - dragState.y) / 360;
+    dragOffsetRef.current = {
+      phi: (event.clientX - dragState.x) / DRAG_PHI_DIVISOR,
+      theta: (event.clientY - dragState.y) / DRAG_THETA_DIVISOR,
+    };
 
-    rotationRef.current = {
-      phi: dragState.phi + (event.clientX - dragState.x) / 220,
-      theta: Math.max(-0.7, Math.min(0.7, nextTheta)),
+    const now = performance.now();
+    const lastPointer = lastPointerRef.current;
+
+    if (lastPointer) {
+      const elapsedMs = Math.max(now - lastPointer.t, 1);
+
+      velocityRef.current = {
+        phi: clampVelocity(((event.clientX - lastPointer.x) / elapsedMs) * DRAG_PHI_VELOCITY_SCALE),
+        theta: clampVelocity(((event.clientY - lastPointer.y) / elapsedMs) * DRAG_THETA_VELOCITY_SCALE),
+      };
+    }
+
+    lastPointerRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      t: now,
     };
   };
 
   const stopDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current.pointerId === event.pointerId) {
+    if (dragRef.current.pointerId === event.pointerId && dragRef.current.active) {
+      rotationRef.current = getRotationWithDragOffset(rotationRef.current, dragOffsetRef.current);
+      dragOffsetRef.current = { phi: 0, theta: 0 };
+
+      if (event.type !== "pointerup" || reduceMotionRef.current) {
+        velocityRef.current = { phi: 0, theta: 0 };
+        rotationRef.current = {
+          ...rotationRef.current,
+          theta: Math.max(DRAG_THETA_MIN, Math.min(DRAG_THETA_MAX, rotationRef.current.theta)),
+        };
+      }
+
       dragRef.current.active = false;
+      lastPointerRef.current = null;
     }
 
     if (stageRef.current?.hasPointerCapture(event.pointerId)) {
@@ -946,11 +1428,30 @@ function PortalPage({
   );
 }
 
+function formatGlobeControlValue(control: GlobeSliderControl, value: number) {
+  return clampGlobeControlValue(control.id, value).toFixed(control.precision);
+}
+
 function GlobeOnlyPage() {
-  const [hideMarkers, setHideMarkers] = useState(false);
+  const [standaloneSettings, setStandaloneSettings] = useState<StandaloneGlobeSettings>(readStandaloneGlobeSettings);
+  const [openSettingsPanels, setOpenSettingsPanels] = useState<Record<SettingsPanelId, boolean>>({
+    scenario: true,
+    controls: true,
+  });
   const [isExporting, setIsExporting] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const standaloneCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const exportUrlRef = useRef<string | null>(null);
+  const globeControls: GlobeControlSettings = {
+    markerSize: standaloneSettings.markerSize,
+    markerElevation: standaloneSettings.markerElevation,
+    arcHeight: standaloneSettings.arcHeight,
+    arcWidth: standaloneSettings.arcWidth,
+    showArcs: standaloneSettings.showArcs,
+    autoRotate: standaloneSettings.autoRotate,
+  };
+  const activeScenarioId = standaloneSettings.activeScenarioId;
+  const activeScenario = SCENARIOS.find((scenario) => scenario.id === activeScenarioId) ?? DEFAULT_SCENARIO;
 
   useEffect(() => {
     return () => {
@@ -959,6 +1460,28 @@ function GlobeOnlyPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    writeStandaloneGlobeSettings(standaloneSettings);
+  }, [standaloneSettings]);
+
+  useEffect(() => {
+    if (!isSettingsOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isSettingsOpen]);
 
   const prepareGlobeDownload = (link: HTMLAnchorElement) => {
     const canvas = standaloneCanvasRef.current;
@@ -988,46 +1511,292 @@ function GlobeOnlyPage() {
     window.setTimeout(() => setIsExporting(false), 150);
   };
 
+  const toggleSettingsPanel = (panelId: SettingsPanelId) => {
+    setOpenSettingsPanels((currentPanels) => ({
+      ...currentPanels,
+      [panelId]: !currentPanels[panelId],
+    }));
+  };
+
+  const updateScenario = (scenarioId: string) => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      activeScenarioId: getValidatedScenarioId(scenarioId),
+    }));
+  };
+
+  const resetScenario = () => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      activeScenarioId: DEFAULT_SCENARIO.id,
+    }));
+  };
+
+  const resetGlobeControls = () => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      ...DEFAULT_GLOBE_CONTROLS,
+    }));
+  };
+
+  const updateGlobeSlider = (controlId: GlobeSliderControlId, value: number) => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      [controlId]: clampGlobeControlValue(controlId, value),
+    }));
+  };
+
+  const resetGlobeSlider = (controlId: GlobeSliderControlId) => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      [controlId]: DEFAULT_GLOBE_CONTROLS[controlId],
+    }));
+  };
+
+  const updateGlobeToggle = (controlId: GlobeToggleControlId, checked: boolean) => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      [controlId]: checked,
+    }));
+  };
+
+  const resetGlobeToggle = (controlId: GlobeToggleControlId) => {
+    setStandaloneSettings((currentSettings) => ({
+      ...currentSettings,
+      [controlId]: DEFAULT_GLOBE_CONTROLS[controlId],
+    }));
+  };
+
   return (
-    <main className="standalone-globe-page" aria-label="Globe only">
-      <div className="standalone-globe-frame">
-        <CobeGlobe
-          className="standalone-globe-stage"
-          ariaLabel="Draggable standalone COBE globe"
-          showMarkers={!hideMarkers}
-          renderPixelRatio={2}
-          preserveDrawingBuffer
-          exportCanvasRef={standaloneCanvasRef}
-        />
-      </div>
-      <div className="standalone-globe-controls" aria-label="Globe export controls">
-        <label className="standalone-marker-toggle">
-          <input
-            type="checkbox"
-            checked={hideMarkers}
-            onChange={(event) => setHideMarkers(event.currentTarget.checked)}
-          />
-          <span>Hide markers and lines</span>
-        </label>
-        <a
-          className="standalone-export-button"
-          href="#"
-          download={`cobe-globe-${GLOBE_EXPORT_SIZE}.png`}
-          onPointerDown={(event) => {
-            if (!isExporting) {
-              prepareGlobeDownload(event.currentTarget);
-            }
-          }}
-          onFocus={(event) => {
-            if (!isExporting) {
-              prepareGlobeDownload(event.currentTarget);
-            }
-          }}
-          onClick={exportStandaloneGlobe}
-          aria-disabled={isExporting ? "true" : undefined}
+    <main
+      className={`standalone-globe-page${isSettingsOpen ? " is-settings-open" : ""}`}
+      aria-label="Globe only"
+    >
+      <button
+        className="standalone-settings-menu-button"
+        type="button"
+        aria-label="Open settings"
+        aria-controls="standalone-settings-panel"
+        aria-expanded={isSettingsOpen}
+        onClick={() => setIsSettingsOpen(true)}
+      >
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+      </button>
+
+      <button
+        className="standalone-settings-backdrop"
+        type="button"
+        aria-label="Close settings"
+        onClick={() => setIsSettingsOpen(false)}
+      />
+
+      <div className="standalone-globe-layout">
+        <section className="standalone-globe-view" aria-label="Interactive globe preview">
+          <div className="standalone-globe-frame">
+            <CobeGlobe
+              className="standalone-globe-stage"
+              ariaLabel="Draggable standalone COBE globe"
+              markerSize={globeControls.markerSize}
+              markerElevation={globeControls.markerElevation}
+              arcHeight={globeControls.arcHeight}
+              arcWidth={globeControls.arcWidth}
+              showArcs={globeControls.showArcs}
+              autoRotate={globeControls.autoRotate}
+              connectionMode={activeScenario.connectionMode}
+              renderPixelRatio={2}
+              preserveDrawingBuffer
+              exportCanvasRef={standaloneCanvasRef}
+            />
+          </div>
+        </section>
+
+        <section
+          id="standalone-settings-panel"
+          className="standalone-settings-panel"
+          aria-labelledby="standalone-settings-heading"
         >
-          {isExporting ? "Exporting..." : "Export PNG"}
-        </a>
+          <div className="standalone-settings-header">
+            <h1 id="standalone-settings-heading">Settings</h1>
+            <button
+              className="standalone-settings-close-button"
+              type="button"
+              aria-label="Close settings"
+              onClick={() => setIsSettingsOpen(false)}
+            >
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+            </button>
+          </div>
+
+          <section className="standalone-settings-group standalone-scenario-section">
+            <div className="standalone-settings-group-header">
+              <button
+                id="standalone-scenario-heading"
+                className="standalone-settings-group-toggle"
+                type="button"
+                aria-expanded={openSettingsPanels.scenario}
+                aria-controls="standalone-scenario-panel"
+                onClick={() => toggleSettingsPanel("scenario")}
+              >
+                <span>Scenario</span>
+                <span className="standalone-settings-group-chevron" aria-hidden="true" />
+              </button>
+              <button
+                className="standalone-setting-reset-button"
+                type="button"
+                aria-label="Reset Scenario to default"
+                title="Reset Scenario"
+                onClick={resetScenario}
+              />
+            </div>
+            <div
+              id="standalone-scenario-panel"
+              className="standalone-settings-group-body"
+              role="region"
+              aria-labelledby="standalone-scenario-heading"
+              hidden={!openSettingsPanels.scenario}
+            >
+              <label className="standalone-scenario-select-control" htmlFor="standalone-scenario-select">
+                <span>Scenario</span>
+                <span className="standalone-scenario-select-wrap">
+                  <select
+                    id="standalone-scenario-select"
+                    value={activeScenarioId}
+                    onChange={(event) => updateScenario(event.currentTarget.value)}
+                  >
+                    {SCENARIOS.map((scenario) => (
+                      <option key={scenario.id} value={scenario.id}>
+                        {scenario.label} - {scenario.description}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section className="standalone-settings-group standalone-control-section">
+            <div className="standalone-settings-group-header">
+              <button
+                id="standalone-controls-heading"
+                className="standalone-settings-group-toggle"
+                type="button"
+                aria-expanded={openSettingsPanels.controls}
+                aria-controls="standalone-controls-panel"
+                onClick={() => toggleSettingsPanel("controls")}
+              >
+                <span>Controls</span>
+                <span className="standalone-settings-group-chevron" aria-hidden="true" />
+              </button>
+              <button
+                className="standalone-control-reset-button"
+                type="button"
+                onClick={resetGlobeControls}
+              >
+                Reset
+              </button>
+            </div>
+            <div
+              id="standalone-controls-panel"
+              className="standalone-settings-group-body"
+              role="region"
+              aria-labelledby="standalone-controls-heading"
+              hidden={!openSettingsPanels.controls}
+            >
+              <div className="standalone-slider-list">
+                {GLOBE_SLIDER_CONTROLS.map((control) => (
+                  <div className="standalone-slider-control" key={control.id}>
+                    <div className="standalone-slider-copy">
+                      <span className="standalone-setting-label-row">
+                        <label htmlFor={`standalone-${control.id}`}>{control.label}</label>
+                        <button
+                          className="standalone-setting-reset-button"
+                          type="button"
+                          aria-label={`Reset ${control.label} to default`}
+                          title={`Reset ${control.label}`}
+                          onClick={() => resetGlobeSlider(control.id)}
+                        />
+                      </span>
+                      <span className="standalone-slider-value">
+                        {formatGlobeControlValue(control, globeControls[control.id])}
+                      </span>
+                    </div>
+                    <input
+                      id={`standalone-${control.id}`}
+                      type="range"
+                      min={control.min}
+                      max={control.max}
+                      step={control.step}
+                      value={clampGlobeControlValue(control.id, globeControls[control.id])}
+                      onChange={(event) => updateGlobeSlider(control.id, event.currentTarget.valueAsNumber)}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="standalone-toggle-list">
+                <div className="standalone-toggle-setting">
+                  <label className="standalone-control-toggle">
+                    <input
+                      type="checkbox"
+                      checked={globeControls.showArcs}
+                      onChange={(event) => updateGlobeToggle("showArcs", event.currentTarget.checked)}
+                    />
+                    <span>Show Arcs</span>
+                  </label>
+                  <button
+                    className="standalone-setting-reset-button"
+                    type="button"
+                    aria-label="Reset Show Arcs to default"
+                    title="Reset Show Arcs"
+                    onClick={() => resetGlobeToggle("showArcs")}
+                  />
+                </div>
+                <div className="standalone-toggle-setting">
+                  <label className="standalone-control-toggle">
+                    <input
+                      type="checkbox"
+                      checked={globeControls.autoRotate}
+                      onChange={(event) => updateGlobeToggle("autoRotate", event.currentTarget.checked)}
+                    />
+                    <span>Auto Rotate</span>
+                  </label>
+                  <button
+                    className="standalone-setting-reset-button"
+                    type="button"
+                    aria-label="Reset Auto Rotate to default"
+                    title="Reset Auto Rotate"
+                    onClick={() => resetGlobeToggle("autoRotate")}
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div className="standalone-globe-controls" aria-label="Globe export controls">
+            <a
+              className="standalone-export-button"
+              href="#"
+              download={`cobe-globe-${GLOBE_EXPORT_SIZE}.png`}
+              onPointerDown={(event) => {
+                if (!isExporting) {
+                  prepareGlobeDownload(event.currentTarget);
+                }
+              }}
+              onFocus={(event) => {
+                if (!isExporting) {
+                  prepareGlobeDownload(event.currentTarget);
+                }
+              }}
+              onClick={exportStandaloneGlobe}
+              aria-disabled={isExporting ? "true" : undefined}
+            >
+              {isExporting ? "Exporting..." : "Export PNG"}
+            </a>
+          </div>
+        </section>
       </div>
     </main>
   );
